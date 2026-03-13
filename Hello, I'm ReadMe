@@ -1,4 +1,15 @@
-Hi there!!
+# 🛠️ Mi Taller de Proyectos by ManuG155
 
-My name is Manu, I'm an Electronical Engineering student. Actually my mission is learning about Git and GitHub, during this process
-I'm developing and coding some programs to increase productivity.
+Bienvenido a mi repositorio personal. Aquí gestiono mis desarrollos de ingeniería y software.
+
+## 🚀 Proyectos Destacados
+
+### [StudPro] - Gestor de Estudio Inteligente
+Aplicación desarrollada en **Python (PyQt6)** diseñada para optimizar los tiempos de estudio mediante técnicas de productividad.
+
+* **Estado:** v1.0 (En desarrollo)
+* **Rama del proyecto:** [`studpro`](https://github.com/ManuG155/manug155/tree/studpro)
+* **Funcionalidades:** Audio integrado, gestión de fases de descanso y cronómetro de precisión.
+
+---
+*Estudiante de Ingeniería Electrónica en la UPV*
