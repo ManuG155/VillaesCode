@@ -8,9 +8,9 @@ from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal, QSize
 from PyQt6.QtGui import QPainter, QColor, QPen, QImage, QFont, QFontDatabase, QIcon, QPixmap
 import pygame
 
-# --- IDENTIDAD STUDPRO V1.1 ---
+# --- IDENTIDAD STUDPRO V1.2 ---
 try:
-    myappid = 'studpro.v1.1' 
+    myappid = 'studpro.v1.2' 
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except: pass
 
@@ -83,6 +83,7 @@ class StudPro(QWidget):
         self.num_pomodoros = 1
         self.config_actual = [{"estudio": 55, "descanso": 5} for _ in range(10)]
         self.estado = "inicio"; self.pausado = False
+        self.w_lista = []  # ← NUEVO: inicializado antes de init_ui
         self.init_ui()
         self.timer = QTimer(self); self.timer.timeout.connect(self.motor)
         self.showMaximized()
@@ -123,15 +124,25 @@ class StudPro(QWidget):
         self.stacked.addWidget(self.capa_mot); self.set_pomos(1)
 
     def set_pomos(self, n):
+        # ← NUEVO: guardar valores actuales antes de destruir los widgets
+        for i, w in enumerate(self.w_lista):
+            self.config_actual[i] = {
+                "estudio": int(w.combo_est.currentText().split(" ")[0]),
+                "descanso": int(w.combo_des.currentText().split(" ")[0])
+            }
         self.num_pomodoros = max(1, n)
         while self.lay_p.count():
             item = self.lay_p.takeAt(0)
             if item.widget(): item.widget().deleteLater()
-        self.lay_p.addStretch(1); self.w_lista = []
+        self.lay_p.addStretch(1)
+        self.w_lista = []
         for i in range(self.num_pomodoros):
             w = ItemConfiguracion(i+1, self.config_actual[i]["estudio"], self.config_actual[i]["descanso"])
-            w.deleteRequested.connect(self.eliminar_pomodoro); self.lay_p.addWidget(w); self.w_lista.append(w)
-        self.lay_p.addStretch(1); self.actualizar_botones()
+            w.deleteRequested.connect(self.eliminar_pomodoro)
+            self.lay_p.addWidget(w)
+            self.w_lista.append(w)
+        self.lay_p.addStretch(1)
+        self.actualizar_botones()
 
     def guardar_y_volver(self):
         for i, w in enumerate(self.w_lista):
@@ -214,7 +225,7 @@ class EstudiometroWidget(QWidget):
         self.ratio = ratio; self.txt = t; self.update()
     def paintEvent(self, event):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        ancho, alto = self.width(), self.height(); d = min(ancho, alto) * 0.90 # Círculo agrandado al 90%
+        ancho, alto = self.width(), self.height(); d = min(ancho, alto) * 0.90
         r = QRectF((ancho-d)/2, (alto-d)/2, d, d)
         p.setPen(QPen(QColor(COLOR_ESTETICO), d*0.040, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(r, 90*16, int(360*self.ratio*16))
