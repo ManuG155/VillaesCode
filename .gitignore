@@ -2,3 +2,16 @@ dist/
 build/
 *.spec
 *.exe
+
+# Ignorar ejecutables y carpetas de build
+*.exe
+build/
+dist/
+*.spec
+
+# Ignorar assets multimedia (opcional, si no quieres que suban)
+*.png
+*.jpg
+*.mp3
+*.otf
+*.ico
