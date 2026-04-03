@@ -83,7 +83,7 @@ class StudPro(QWidget):
         self.num_pomodoros = 1
         self.config_actual = [{"estudio": 55, "descanso": 5} for _ in range(10)]
         self.estado = "inicio"; self.pausado = False
-        self.w_lista = []  # ← NUEVO: inicializado antes de init_ui
+        self.w_lista = []
         self.init_ui()
         self.timer = QTimer(self); self.timer.timeout.connect(self.motor)
         self.showMaximized()
@@ -118,13 +118,31 @@ class StudPro(QWidget):
         panel_der.addSpacing(20); self.btn_guardar = QPushButton("GUARDAR")
         self.btn_guardar.clicked.connect(self.guardar_y_volver); panel_der.addWidget(self.btn_guardar, 0, Qt.AlignmentFlag.AlignCenter)
         lay_cfg_h.addWidget(panel_lat); lay_cfg_h.addLayout(panel_der); self.stacked.addWidget(self.capa_cfg)
-        self.capa_mot = QFrame(); lay_m = QVBoxLayout(self.capa_mot); self.lbl_f = QLabel(""); self.vis = EstudiometroWidget(self)
-        self.btn_pausa = QPushButton("PAUSA"); self.btn_pausa.clicked.connect(self.toggle_pausa)
-        lay_m.addStretch(1); lay_m.addWidget(self.lbl_f, 0, Qt.AlignmentFlag.AlignCenter); lay_m.addWidget(self.vis, 4); lay_m.addWidget(self.btn_pausa, 0, Qt.AlignmentFlag.AlignCenter); lay_m.addStretch(1)
-        self.stacked.addWidget(self.capa_mot); self.set_pomos(1)
+
+        # --- PANTALLA MOTOR ---
+        self.capa_mot = QFrame()
+        lay_m = QVBoxLayout(self.capa_mot)
+        self.lbl_f = QLabel("")
+        self.vis = EstudiometroWidget(self)
+        self.btn_pausa = QPushButton("PAUSA")
+        self.btn_pausa.clicked.connect(self.toggle_pausa)
+        self.btn_regresar = QPushButton("REGRESAR")
+        self.btn_regresar.clicked.connect(self.volver_menu)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        btn_row.addWidget(self.btn_pausa)
+        btn_row.addSpacing(40)
+        btn_row.addWidget(self.btn_regresar)
+        btn_row.addStretch(1)
+        lay_m.addStretch(1)
+        lay_m.addWidget(self.lbl_f, 0, Qt.AlignmentFlag.AlignCenter)
+        lay_m.addWidget(self.vis, 4)
+        lay_m.addLayout(btn_row)
+        lay_m.addStretch(1)
+        self.stacked.addWidget(self.capa_mot)
+        self.set_pomos(1)
 
     def set_pomos(self, n):
-        # ← NUEVO: guardar valores actuales antes de destruir los widgets
         for i, w in enumerate(self.w_lista):
             self.config_actual[i] = {
                 "estudio": int(w.combo_est.currentText().split(" ")[0]),
@@ -173,6 +191,14 @@ class StudPro(QWidget):
         else: self.timer.start(50); pygame.mixer.music.unpause(); self.btn_pausa.setText("PAUSA")
         self.pausado = not self.pausado
 
+    def volver_menu(self):
+        self.timer.stop()
+        pygame.mixer.music.stop()
+        self.pausado = False
+        self.btn_pausa.setText("PAUSA")
+        self.estado = "inicio"
+        self.stacked.setCurrentIndex(0)
+
     def arrancar(self):
         self.fases = []
         for i in range(self.num_pomodoros):
@@ -202,7 +228,7 @@ class StudPro(QWidget):
 
     def resizeEvent(self, event):
         e = min(self.width(), self.height())
-        st_btn = f"QPushButton {{ background-color: transparent; color: {COLOR_ESTETICO}; border: 3px solid {COLOR_ESTETICO}; border-radius: 18px; padding: 15px; font-family: Kenao; font-size: {int(e*0.035)}px; min-width: {int(e*0.35)}px; }} QPushButton:hover {{ background-color: {COLOR_ESTETICO}; color: black; }}"
+        st_btn = f"QPushButton {{ background-color: transparent; color: {COLOR_ESTETICO}; border: 3px solid {COLOR_ESTETICO}; border-radius: 18px; padding: 15px; font-family: Kenao; font-size: {int(e*0.035)}px; min-width: {int(e*0.25)}px; }} QPushButton:hover {{ background-color: {COLOR_ESTETICO}; color: black; }}"
         if hasattr(self, 'pix_logo'): self.lbl_logo.setPixmap(self.pix_logo.scaled(int(e*0.42), int(e*0.42), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         self.lbl_welcome.setStyleSheet(f"color: {COLOR_ESTETICO}; font-family: Kenao; font-size: {int(e*0.05)}px; background: transparent;")
         self.lbl_main.setStyleSheet(f"color: {COLOR_ESTETICO}; font-family: Kenao; font-size: {int(e*0.17)}px; font-weight: bold; background: transparent;")
@@ -212,7 +238,10 @@ class StudPro(QWidget):
             elif item.spacerItem(): self.lay_ini.removeItem(item)
         self.lay_ini.addStretch(4); self.lay_ini.addWidget(self.lbl_logo, 0, Qt.AlignmentFlag.AlignCenter); self.lay_ini.addSpacing(20)
         self.lay_ini.addWidget(self.lbl_welcome, 0, Qt.AlignmentFlag.AlignCenter); self.lay_ini.addWidget(self.lbl_main, 0, Qt.AlignmentFlag.AlignCenter)
-        self.lay_ini.addStretch(3); self.btn_ini.setStyleSheet(st_btn); self.btn_pers.setStyleSheet(st_btn); self.btn_guardar.setStyleSheet(st_btn); self.btn_pausa.setStyleSheet(st_btn)
+        self.lay_ini.addStretch(3)
+        self.btn_ini.setStyleSheet(st_btn); self.btn_pers.setStyleSheet(st_btn)
+        self.btn_guardar.setStyleSheet(st_btn); self.btn_pausa.setStyleSheet(st_btn)
+        self.btn_regresar.setStyleSheet(st_btn)
         self.lay_ini.addWidget(self.btn_ini, 0, Qt.AlignmentFlag.AlignCenter); self.lay_ini.addSpacing(40)
         self.lay_ini.addWidget(self.btn_pers, 0, Qt.AlignmentFlag.AlignCenter); self.lay_ini.addStretch(4)
         self.actualizar_botones()
