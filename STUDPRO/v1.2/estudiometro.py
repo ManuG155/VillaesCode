@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLa
                              QSizePolicy, QStyledItemDelegate, QListView, QSlider,
                              QGraphicsOpacityEffect, QStyleOptionComboBox, QStyle)
 from PyQt6.QtCore import (Qt, QTimer, QRectF, pyqtSignal, QSize, QPropertyAnimation,
-                          QEasingCurve, QRect, QPointF)
+                          QEasingCurve, QRect, QPointF, pyqtProperty)
 from PyQt6.QtGui import (QPainter, QColor, QPen, QImage, QFont, QFontDatabase,
                          QIcon, QPixmap, QFontMetrics)
 import pygame
@@ -155,6 +155,12 @@ class VolumeControlWidget(QFrame):
     def _on_volume_changed(self, val):
         try: pygame.mixer.music.set_volume(val / 100.0)
         except: pass
+        try:
+            parent = self.parent()
+            if parent and hasattr(parent, "canal_alerta") and parent.canal_alerta:
+                parent.canal_alerta.set_volume(val / 100.0)
+        except:
+            pass
         if val > 0:
             self._muteado = False
             self._volumen_antes_mute = val
@@ -190,6 +196,73 @@ class VolumeControlWidget(QFrame):
         self.actualizar_icono()
         if self._slider_visible:
             self.slider_container.setMaximumHeight(slider_len)
+
+
+class StudProSwitch(QWidget):
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, parent=None, checked=True):
+        super().__init__(parent)
+        self._checked = checked
+        self._thumb_pos = 1.0 if checked else 0.0
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(74, 38)
+        self.anim = QPropertyAnimation(self, b"thumb_pos")
+        self.anim.setDuration(200)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, checked, animated=False):
+        checked = bool(checked)
+        if self._checked == checked and not animated:
+            self.update()
+            return
+        self._checked = checked
+        destino = 1.0 if checked else 0.0
+        self.anim.stop()
+        if animated:
+            self.anim.setStartValue(self._thumb_pos)
+            self.anim.setEndValue(destino)
+            self.anim.start()
+        else:
+            self._thumb_pos = destino
+            self.update()
+        self.toggled.emit(self._checked)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setChecked(not self._checked, animated=True)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def get_thumb_pos(self):
+        return self._thumb_pos
+
+    def set_thumb_pos(self, value):
+        self._thumb_pos = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    thumb_pos = pyqtProperty(float, fget=get_thumb_pos, fset=set_thumb_pos)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        color_fondo = QColor(COLOR_ESTETICO if self._checked else "#333333")
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color_fondo)
+        painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+
+        margen = 4
+        diametro = rect.height() - (margen * 2)
+        recorrido = rect.width() - diametro - (margen * 2)
+        x_thumb = rect.x() + margen + (recorrido * self._thumb_pos)
+        thumb_rect = QRectF(x_thumb, rect.y() + margen, diametro, diametro)
+        painter.setBrush(QColor("#151515"))
+        painter.drawEllipse(thumb_rect)
 
 
 class ItemConfiguracion(QFrame):
@@ -246,10 +319,25 @@ class StudPro(QWidget):
         self.img_descanso = QImage(resource_path("fondo_descanso.jpg"))
         self.num_pomodoros = 1
         self.config_actual = [{"estudio": 55, "descanso": 5} for _ in range(10)]
+        self.alerta_activa = True
+        self.sonido_alerta = None
+        self.canal_alerta = None
+        self._inicializar_audio_alerta()
         self.estado = "inicio"; self.pausado = False; self.w_lista = []
         self.init_ui()
         self.timer = QTimer(self); self.timer.timeout.connect(self.motor)
         self.showMaximized()
+
+    def _inicializar_audio_alerta(self):
+        try:
+            pygame.mixer.set_num_channels(8)
+            ruta_alerta = resource_path("alerta.mp3")
+            if os.path.exists(ruta_alerta):
+                self.sonido_alerta = pygame.mixer.Sound(ruta_alerta)
+                self.canal_alerta = pygame.mixer.Channel(1)
+        except:
+            self.sonido_alerta = None
+            self.canal_alerta = None
 
     def _posicionar_vol(self):
         """Posiciona y muestra el widget de volumen. Llamado tras arrancar()."""
@@ -263,6 +351,73 @@ class StudPro(QWidget):
         self.vol_widget.setGeometry(w - ancho_vol - margen, margen, ancho_vol, alto_vol)
         self.vol_widget.setVisible(True)
         self.vol_widget.raise_()
+
+    def _crear_toggle_alerta(self):
+        self.box_alerta_cfg = QWidget(self.capa_cfg)
+        self.box_alerta_cfg.setStyleSheet("background: transparent;")
+        lay_alerta = QHBoxLayout(self.box_alerta_cfg)
+        lay_alerta.setContentsMargins(0, 0, 0, 0)
+        lay_alerta.setSpacing(14)
+        self.lbl_alerta_cfg = QLabel("¿Te aviso cuando acabe tu sesión?")
+        self.lbl_alerta_cfg.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        self.lbl_alerta_cfg.setStyleSheet(f"color: {COLOR_ESTETICO}; font-family: Belgrano; background: transparent;")
+        self.switch_alerta = StudProSwitch(self.box_alerta_cfg, checked=self.alerta_activa)
+        self.switch_alerta.toggled.connect(self._actualizar_alerta_activa)
+        lay_alerta.addWidget(self.lbl_alerta_cfg)
+        lay_alerta.addWidget(self.switch_alerta, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.box_alerta_cfg.raise_()
+
+    def _actualizar_alerta_activa(self, estado):
+        self.alerta_activa = bool(estado)
+
+    def _posicionar_toggle_alerta(self):
+        if not hasattr(self, "box_alerta_cfg"):
+            return
+        ancho_cfg = self.capa_cfg.width()
+        alto_cfg = self.capa_cfg.height()
+        escala = min(ancho_cfg, alto_cfg)
+        margen_top = max(18, int(alto_cfg * 0.035))
+        margen_der = max(20, int(ancho_cfg * 0.03))
+        font_alerta = max(12, int(escala * 0.026))
+        ancho_label = min(max(180, int(ancho_cfg * 0.24)), 330)
+        self.lbl_alerta_cfg.setFixedWidth(ancho_label)
+        self.lbl_alerta_cfg.setWordWrap(True)
+        self.lbl_alerta_cfg.setStyleSheet(
+            f"color: {COLOR_ESTETICO}; font-family: Belgrano; font-size: {font_alerta}px; background: transparent;"
+        )
+        switch_w = max(64, int(escala * 0.11))
+        switch_h = max(32, int(escala * 0.056))
+        self.switch_alerta.setFixedSize(switch_w, switch_h)
+        self.box_alerta_cfg.adjustSize()
+        x = ancho_cfg - self.box_alerta_cfg.width() - margen_der
+        self.box_alerta_cfg.move(max(10, x), margen_top)
+        self.box_alerta_cfg.raise_()
+
+    def _reproducir_ambiente(self, file, loop=-1):
+        try:
+            path = resource_path(file)
+            if os.path.exists(path):
+                pygame.mixer.music.stop()
+                pygame.mixer.music.load(path)
+                pygame.mixer.music.play(loop, fade_ms=250)
+                pygame.mixer.music.set_volume(self.vol_widget.slider.value() / 100.0)
+        except:
+            pass
+
+    def _reproducir_alerta_superpuesta(self):
+        if not self.alerta_activa or not self.sonido_alerta:
+            return
+        try:
+            volumen = self.vol_widget.slider.value() / 100.0 if hasattr(self, "vol_widget") else 0.8
+            if self.canal_alerta:
+                self.canal_alerta.set_volume(volumen)
+                self.canal_alerta.play(self.sonido_alerta)
+            else:
+                canal = self.sonido_alerta.play()
+                if canal:
+                    canal.set_volume(volumen)
+        except:
+            pass
 
     def init_ui(self):
         self.stacked = QStackedWidget(self)
@@ -326,6 +481,7 @@ class StudPro(QWidget):
         self.btn_guardar.clicked.connect(self.guardar_y_volver)
         panel_der.addWidget(self.btn_guardar, 0, Qt.AlignmentFlag.AlignCenter)
         self.lay_cfg_h.addWidget(self.panel_lat); self.lay_cfg_h.addLayout(panel_der)
+        self._crear_toggle_alerta()
         self.stacked.addWidget(self.capa_cfg)
 
         # --- PANTALLA MOTOR ---
@@ -405,12 +561,19 @@ class StudPro(QWidget):
         except: pass
 
     def toggle_pausa(self):
-        if not self.pausado: self.timer.stop(); pygame.mixer.music.pause(); self.btn_pausa.setText("REANUDAR")
-        else: self.timer.start(50); pygame.mixer.music.unpause(); self.btn_pausa.setText("PAUSA")
+        if not self.pausado:
+            self.timer.stop(); pygame.mixer.music.pause()
+            if self.canal_alerta and self.canal_alerta.get_busy(): self.canal_alerta.pause()
+            self.btn_pausa.setText("REANUDAR")
+        else:
+            self.timer.start(50); pygame.mixer.music.unpause()
+            if self.canal_alerta: self.canal_alerta.unpause()
+            self.btn_pausa.setText("PAUSA")
         self.pausado = not self.pausado
 
     def volver_menu(self):
         self.timer.stop(); pygame.mixer.music.stop()
+        if self.canal_alerta: self.canal_alerta.stop()
         self.pausado = False; self.btn_pausa.setText("PAUSA")
         self.estado = "inicio"
         self.vol_widget.setVisible(False)
@@ -430,13 +593,16 @@ class StudPro(QWidget):
 
     def next_fase(self):
         if self.idx < len(self.fases):
-            if self.idx > 0: self.play_sound("alerta.mp3")
             n, m, t = self.fases[self.idx]; self.total_ms = m*60*1000; self.rem_ms = self.total_ms; self.idx += 1
             self.lbl_f.setText(n)
             self.timer.start(50)
-            if t == "estudio": self.play_sound("ruido_blanco.mp3", -1)
-            else: self.play_sound("piano.mp3", -1)
-        else: self.play_sound("alerta.mp3"); self.vol_widget.setVisible(False); self.stacked.setCurrentIndex(0); self.estado = "inicio"
+            if t == "estudio": self._reproducir_ambiente("ruido_blanco.mp3", -1)
+            else: self._reproducir_ambiente("piano.mp3", -1)
+            if self.idx > 1: self._reproducir_alerta_superpuesta()
+        else:
+            pygame.mixer.music.stop()
+            if self.alerta_activa: self._reproducir_alerta_superpuesta()
+            self.vol_widget.setVisible(False); self.stacked.setCurrentIndex(0); self.estado = "inicio"
 
     def motor(self):
         if self.rem_ms > 0:
@@ -529,6 +695,7 @@ class StudPro(QWidget):
             self.vol_widget.setGeometry(w - ancho_vol - margen, margen, ancho_vol, alto_vol)
             self.vol_widget.raise_()
 
+        self._posicionar_toggle_alerta()
         self.actualizar_botones()
 
 
