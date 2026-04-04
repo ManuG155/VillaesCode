@@ -255,8 +255,7 @@ class StudProSwitch(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color_fondo)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
-
-        margen = 4
+        margen = max(3, int(rect.height() * 0.13))
         diametro = rect.height() - (margen * 2)
         recorrido = rect.width() - diametro - (margen * 2)
         x_thumb = rect.x() + margen + (recorrido * self._thumb_pos)
@@ -373,23 +372,35 @@ class StudPro(QWidget):
     def _posicionar_toggle_alerta(self):
         if not hasattr(self, "box_alerta_cfg"):
             return
-        ancho_cfg = self.capa_cfg.width()
-        alto_cfg = self.capa_cfg.height()
-        escala = min(ancho_cfg, alto_cfg)
-        margen_top = max(18, int(alto_cfg * 0.035))
-        margen_der = max(20, int(ancho_cfg * 0.03))
-        font_alerta = max(12, int(escala * 0.026))
-        ancho_label = min(max(180, int(ancho_cfg * 0.24)), 330)
+        w = self.capa_cfg.width()
+        h = self.capa_cfg.height()
+        e = min(w, h)
+
+    # Umbral: ocultar si no hay espacio suficiente
+        if w < 600 or h < 400:
+            self.box_alerta_cfg.hide()
+            return  # alerta_activa NO se toca, el valor se preserva
+
+        self.box_alerta_cfg.show()
+
+        font_alerta = max(11, int(e * 0.022))
+        ancho_label = min(max(160, int(w * 0.22)), 300)
         self.lbl_alerta_cfg.setFixedWidth(ancho_label)
         self.lbl_alerta_cfg.setWordWrap(True)
         self.lbl_alerta_cfg.setStyleSheet(
-            f"color: {COLOR_ESTETICO}; font-family: Belgrano; font-size: {font_alerta}px; background: transparent;"
-        )
-        switch_w = max(64, int(escala * 0.11))
-        switch_h = max(32, int(escala * 0.056))
+        f"color: {COLOR_ESTETICO}; font-family: Belgrano; "
+        f"font-size: {font_alerta}px; background: transparent;"
+    )
+
+    # Switch escala proporcional con límites razonables
+        switch_w = max(56, min(80, int(e * 0.10)))
+        switch_h = max(28, min(42, int(e * 0.050)))
         self.switch_alerta.setFixedSize(switch_w, switch_h)
+
         self.box_alerta_cfg.adjustSize()
-        x = ancho_cfg - self.box_alerta_cfg.width() - margen_der
+        margen_top = max(14, int(h * 0.030))
+        margen_der = max(16, int(w * 0.025))
+        x = w - self.box_alerta_cfg.width() - margen_der
         self.box_alerta_cfg.move(max(10, x), margen_top)
         self.box_alerta_cfg.raise_()
 
