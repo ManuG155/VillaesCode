@@ -1,11 +1,14 @@
 import sys
 import os
 import ctypes
-from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QFrame, QStackedWidget, QComboBox, QScrollArea, 
-                             QSizePolicy, QStyledItemDelegate, QListView)
-from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal, QSize
-from PyQt6.QtGui import QPainter, QColor, QPen, QImage, QFont, QFontDatabase, QIcon, QPixmap
+from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
+                             QPushButton, QFrame, QStackedWidget, QComboBox, QScrollArea,
+                             QSizePolicy, QStyledItemDelegate, QListView, QSlider,
+                             QGraphicsOpacityEffect, QStyleOptionComboBox, QStyle)
+from PyQt6.QtCore import (Qt, QTimer, QRectF, pyqtSignal, QSize, QPropertyAnimation,
+                          QEasingCurve, QRect, QPointF)
+from PyQt6.QtGui import (QPainter, QColor, QPen, QImage, QFont, QFontDatabase,
+                         QIcon, QPixmap, QFontMetrics)
 import pygame
 
 # --- IDENTIDAD STUDPRO V1.2 ---
@@ -28,10 +31,166 @@ except: pass
 COLOR_ESTETICO = "#dbc096"
 COLOR_NEGRO_ALPHA = "rgba(0, 0, 0, 225)"
 
+
+class CenteredComboBox(QComboBox):
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.rect()
+        painter.setBrush(QColor(0, 0, 0))
+        painter.setPen(QPen(QColor(COLOR_ESTETICO), 2))
+        painter.drawRoundedRect(r.adjusted(1,1,-1,-1), 10, 10)
+        painter.setPen(QColor(COLOR_ESTETICO))
+        font = QFont("Belgrano", 18)
+        painter.setFont(font)
+        painter.drawText(r, Qt.AlignmentFlag.AlignCenter, self.currentText())
+
+
 class CenteredDelegate(QStyledItemDelegate):
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         option.displayAlignment = Qt.AlignmentFlag.AlignCenter
+
+
+class VolumeControlWidget(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self._volumen_antes_mute = 80
+        self._muteado = False
+        self._slider_visible = False
+        self.icon_size = 36
+        self.slider_len = 120
+        self.setStyleSheet("background: transparent; border: none;")
+        self._build_ui()
+        self._setup_animation()
+        self.actualizar_icono()
+        self._colapsar_inmediato()
+
+    def _build_ui(self):
+        self.lay = QVBoxLayout(self)
+        self.lay.setContentsMargins(8, 8, 8, 8)
+        self.lay.setSpacing(6)
+        self.lay.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self.btn_icon = QPushButton()
+        self.btn_icon.setStyleSheet("QPushButton { border: none; background: transparent; }"
+                                    "QPushButton:hover { background: rgba(219,192,150,20); border-radius: 18px; }")
+        self.btn_icon.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_icon.clicked.connect(self.toggle_mute)
+        self.lay.addWidget(self.btn_icon, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.slider_container = QWidget()
+        self.slider_container.setStyleSheet("background: transparent;")
+        sc_lay = QVBoxLayout(self.slider_container)
+        sc_lay.setContentsMargins(0, 0, 0, 0)
+        sc_lay.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.slider = QSlider(Qt.Orientation.Vertical)
+        self.slider.setRange(0, 100)
+        self.slider.setValue(80)
+        self.slider.setInvertedAppearance(True)
+        self.slider.setInvertedControls(True)
+        self.slider.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._aplicar_estilo_slider()
+        self.slider.valueChanged.connect(self._on_volume_changed)
+        sc_lay.addWidget(self.slider, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.lay.addWidget(self.slider_container, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    def _aplicar_estilo_slider(self):
+        self.slider.setStyleSheet(f"""
+            QSlider::groove:vertical {{
+                background: rgba(219,192,150,60);
+                width: 6px; border-radius: 3px;
+            }}
+            QSlider::handle:vertical {{
+                background: {COLOR_ESTETICO};
+                border: 2px solid {COLOR_ESTETICO};
+                height: 16px; width: 16px;
+                margin: 0 -5px; border-radius: 8px;
+            }}
+            QSlider::sub-page:vertical {{
+                background: {COLOR_ESTETICO};
+                width: 6px; border-radius: 3px;
+            }}
+        """)
+
+    def _setup_animation(self):
+        self.anim = QPropertyAnimation(self.slider_container, b"maximumHeight")
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.anim.setDuration(250)
+
+    def _colapsar_inmediato(self):
+        self.slider_container.setMaximumHeight(0)
+        self.slider_container.setVisible(False)
+        self._slider_visible = False
+
+    def _desplegar(self):
+        if self._slider_visible: return
+        self._slider_visible = True
+        self.slider_container.setVisible(True)
+        self.anim.stop()
+        self.anim.setStartValue(0)
+        self.anim.setEndValue(self.slider_len)
+        self.anim.start()
+
+    def _colapsar(self):
+        if not self._slider_visible: return
+        self._slider_visible = False
+        self.anim.stop()
+        self.anim.setStartValue(self.slider_container.height())
+        self.anim.setEndValue(0)
+        self.anim.finished.connect(self._ocultar_slider)
+        self.anim.start()
+
+    def _ocultar_slider(self):
+        try: self.anim.finished.disconnect(self._ocultar_slider)
+        except: pass
+        if not self._slider_visible:
+            self.slider_container.setVisible(False)
+
+    def enterEvent(self, event):
+        self._desplegar(); super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._colapsar(); super().leaveEvent(event)
+
+    def _on_volume_changed(self, val):
+        try: pygame.mixer.music.set_volume(val / 100.0)
+        except: pass
+        if val > 0:
+            self._muteado = False
+            self._volumen_antes_mute = val
+        else:
+            self._muteado = True
+        self.actualizar_icono()
+
+    def toggle_mute(self):
+        if self._muteado or self.slider.value() == 0:
+            self.slider.setValue(self._volumen_antes_mute if self._volumen_antes_mute > 0 else 80)
+            self._muteado = False
+        else:
+            self._volumen_antes_mute = self.slider.value()
+            self.slider.setValue(0)
+            self._muteado = True
+        self.actualizar_icono()
+
+    def actualizar_icono(self):
+        es_mute = self._muteado or self.slider.value() == 0
+        nombre = "altavoz_mute.png" if es_mute else "altavoz_sonido.png"
+        ruta = resource_path(nombre)
+        if os.path.exists(ruta):
+            pix = QPixmap(ruta).scaled(self.icon_size, self.icon_size,
+                Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.btn_icon.setIcon(QIcon(pix))
+            self.btn_icon.setIconSize(QSize(self.icon_size, self.icon_size))
+        self.btn_icon.setFixedSize(self.icon_size + 8, self.icon_size + 8)
+
+    def actualizar_tamano(self, icon_size, slider_len):
+        self.icon_size = icon_size
+        self.slider_len = slider_len
+        self.slider.setFixedHeight(slider_len)
+        self.actualizar_icono()
+        if self._slider_visible:
+            self.slider_container.setMaximumHeight(slider_len)
+
 
 class ItemConfiguracion(QFrame):
     deleteRequested = pyqtSignal(int)
@@ -40,7 +199,6 @@ class ItemConfiguracion(QFrame):
         self.numero_actual = numero
         self.setStyleSheet(f"QFrame {{ background-color: {COLOR_NEGRO_ALPHA}; border-radius: 20px; border: 2px solid {COLOR_ESTETICO}; }}")
         layout = QVBoxLayout(self); layout.setContentsMargins(20, 10, 20, 14); layout.setSpacing(6)
-
         header = QHBoxLayout(); header.addStretch(1)
         self.titulo = QLabel(f"POMODORO {numero}")
         self.titulo.setStyleSheet(f"border: none; background: transparent; color: {COLOR_ESTETICO}; font-family: Belgrano; font-size: 22px; font-weight: bold;")
@@ -53,15 +211,14 @@ class ItemConfiguracion(QFrame):
         self.btn_trash.setStyleSheet("QPushButton { border: none; background: transparent; } QPushButton:hover { background-color: rgba(255,60,60,50); border-radius: 10px; }")
         self.btn_trash.clicked.connect(lambda: self.deleteRequested.emit(self.numero_actual))
         header.addWidget(self.btn_trash); layout.addLayout(header)
-
         controles = QHBoxLayout(); controles.setSpacing(16); controles.setContentsMargins(0, 0, 0, 0)
         for label_text, def_val in [("Estudio", estudio_def), ("Descanso", descanso_def)]:
             col = QVBoxLayout(); col.setSpacing(6)
             lbl = QLabel(label_text)
             lbl.setStyleSheet("border: none; background: transparent; color: white; font-family: Belgrano; font-size: 18px;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            combo = QComboBox()
-            combo.setStyleSheet(f"QComboBox {{ background-color: black; color: {COLOR_ESTETICO}; border: 2px solid {COLOR_ESTETICO}; border-radius: 10px; padding: 6px; font-family: Belgrano; font-size: 18px; min-height: 40px; }} QComboBox::drop-down {{ border: none; width: 0px; }}")
+            combo = CenteredComboBox()
+            combo.setStyleSheet(f"CenteredComboBox {{ min-height: 40px; }} CenteredComboBox::drop-down {{ border: none; width: 0px; }}")
             view = QListView()
             view.setStyleSheet(f"background-color: black; color: {COLOR_ESTETICO}; selection-background-color: {COLOR_ESTETICO}; selection-foreground-color: black; font-family: Belgrano; font-size: 18px;")
             combo.setView(view); combo.setItemDelegate(CenteredDelegate())
@@ -76,6 +233,7 @@ class ItemConfiguracion(QFrame):
             else: self.combo_des = combo
         layout.addLayout(controles)
 
+
 class StudPro(QWidget):
     def __init__(self):
         super().__init__()
@@ -83,8 +241,8 @@ class StudPro(QWidget):
         self.setMinimumSize(400, 300)
         QFontDatabase.addApplicationFont(resource_path("Kenao.otf"))
         QFontDatabase.addApplicationFont(resource_path("Belgrano-Regular.otf"))
-        self.img_inicio  = QImage(resource_path("inicio.jpg"))
-        self.img_bonita  = QImage(resource_path("imagen_bonita.jpg"))
+        self.img_inicio   = QImage(resource_path("inicio.jpg"))
+        self.img_bonita   = QImage(resource_path("imagen_bonita.jpg"))
         self.img_descanso = QImage(resource_path("fondo_descanso.jpg"))
         self.num_pomodoros = 1
         self.config_actual = [{"estudio": 55, "descanso": 5} for _ in range(10)]
@@ -92,6 +250,19 @@ class StudPro(QWidget):
         self.init_ui()
         self.timer = QTimer(self); self.timer.timeout.connect(self.motor)
         self.showMaximized()
+
+    def _posicionar_vol(self):
+        """Posiciona y muestra el widget de volumen. Llamado tras arrancar()."""
+        w = self.width(); h = self.height(); e = min(w, h)
+        icon_size  = max(28, int(e * 0.032))
+        slider_len = max(80, int(e * 0.18))
+        self.vol_widget.actualizar_tamano(icon_size, slider_len)
+        margen    = max(10, int(e * 0.012))
+        ancho_vol = icon_size + 24
+        alto_vol  = icon_size + 24 + slider_len + 20
+        self.vol_widget.setGeometry(w - ancho_vol - margen, margen, ancho_vol, alto_vol)
+        self.vol_widget.setVisible(True)
+        self.vol_widget.raise_()
 
     def init_ui(self):
         self.stacked = QStackedWidget(self)
@@ -116,7 +287,6 @@ class StudPro(QWidget):
         # --- PANTALLA CONFIGURACIÓN ---
         self.capa_cfg = QFrame()
         self.lay_cfg_h = QHBoxLayout(self.capa_cfg); self.lay_cfg_h.setSpacing(0)
-
         self.panel_lat = QFrame()
         self.panel_lat.setStyleSheet(f"background-color: {COLOR_NEGRO_ALPHA}; border-right: 2px solid {COLOR_ESTETICO};")
         lay_lat_outer = QVBoxLayout(self.panel_lat); lay_lat_outer.setContentsMargins(0,0,0,0); lay_lat_outer.setSpacing(0)
@@ -140,7 +310,6 @@ class StudPro(QWidget):
         self.lay_btns.addStretch(1)
         scroll_lat.setWidget(cont_btns)
         lay_lat_outer.addWidget(scroll_lat); lay_lat_outer.addSpacing(10)
-
         panel_der = QVBoxLayout(); panel_der.setContentsMargins(30,30,30,30)
         self.tit_cfg = QLabel("CONFIGURACIÓN")
         self.tit_cfg.setStyleSheet(f"color: {COLOR_ESTETICO}; font-family: Kenao; font-size: 50px; background: transparent; font-weight: bold;")
@@ -165,7 +334,7 @@ class StudPro(QWidget):
         self.lbl_f = QLabel(""); self.lbl_f.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.vis = EstudiometroWidget(self)
         self.vis.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.btn_pausa   = QPushButton("PAUSA");    self.btn_pausa.clicked.connect(self.toggle_pausa)
+        self.btn_pausa    = QPushButton("PAUSA");    self.btn_pausa.clicked.connect(self.toggle_pausa)
         self.btn_regresar = QPushButton("REGRESAR"); self.btn_regresar.clicked.connect(self.volver_menu)
         self.btn_row_widget = QWidget()
         btn_row = QHBoxLayout(self.btn_row_widget)
@@ -177,6 +346,11 @@ class StudPro(QWidget):
         lay_m.addWidget(self.btn_row_widget, 0, Qt.AlignmentFlag.AlignCenter)
         lay_m.addStretch(1)
         self.stacked.addWidget(self.capa_mot)
+
+        # vol_widget hijo de self, oculto hasta arrancar()
+        self.vol_widget = VolumeControlWidget(self)
+        self.vol_widget.setVisible(False)
+
         self.set_pomos(1)
 
     def set_pomos(self, n):
@@ -214,17 +388,20 @@ class StudPro(QWidget):
         font_s = max(14, int(tam * 0.40))
         for i, b in enumerate(self.btns_n):
             b.setFixedSize(tam, tam)
-            estilo_base = f"border-radius: {tam//2}px; font-family: Belgrano; font-size: {font_s}px; font-weight: bold;"
+            base = f"border-radius: {tam//2}px; font-family: Belgrano; font-size: {font_s}px; font-weight: bold;"
             if i < self.num_pomodoros:
-                b.setStyleSheet(f"QPushButton {{ background-color: {COLOR_ESTETICO}; color: black; border: 2px solid {COLOR_ESTETICO}; {estilo_base} }} QPushButton:hover {{ background-color: white; }}")
+                b.setStyleSheet(f"QPushButton {{ background-color: {COLOR_ESTETICO}; color: black; border: 2px solid {COLOR_ESTETICO}; {base} }} QPushButton:hover {{ background-color: white; }}")
             else:
-                b.setStyleSheet(f"QPushButton {{ background-color: transparent; color: {COLOR_ESTETICO}; border: 2px solid {COLOR_ESTETICO}; {estilo_base} }} QPushButton:hover {{ background-color: {COLOR_ESTETICO}; color: black; }}")
+                b.setStyleSheet(f"QPushButton {{ background-color: transparent; color: {COLOR_ESTETICO}; border: 2px solid {COLOR_ESTETICO}; {base} }} QPushButton:hover {{ background-color: {COLOR_ESTETICO}; color: black; }}")
 
     def play_sound(self, file, loop=0):
         try:
             pygame.mixer.music.stop()
             path = resource_path(file)
-            if os.path.exists(path): pygame.mixer.music.load(path); pygame.mixer.music.play(loop)
+            if os.path.exists(path):
+                pygame.mixer.music.load(path)
+                pygame.mixer.music.play(loop)
+                pygame.mixer.music.set_volume(self.vol_widget.slider.value() / 100.0)
         except: pass
 
     def toggle_pausa(self):
@@ -235,7 +412,9 @@ class StudPro(QWidget):
     def volver_menu(self):
         self.timer.stop(); pygame.mixer.music.stop()
         self.pausado = False; self.btn_pausa.setText("PAUSA")
-        self.estado = "inicio"; self.stacked.setCurrentIndex(0)
+        self.estado = "inicio"
+        self.vol_widget.setVisible(False)
+        self.stacked.setCurrentIndex(0)
 
     def arrancar(self):
         self.fases = []
@@ -243,7 +422,11 @@ class StudPro(QWidget):
             config = self.config_actual[i]
             self.fases.append((f"ESTUDIO {i+1}", config["estudio"], "estudio"))
             self.fases.append((f"DESCANSO {i+1}", config["descanso"], "descanso"))
-        self.idx = 0; self.estado = "study"; self.stacked.setCurrentIndex(2); self.next_fase()
+        self.idx = 0; self.estado = "study"
+        self.stacked.setCurrentIndex(2)
+        # Posicionar y mostrar volumen ahora que el motor está visible
+        self._posicionar_vol()
+        self.next_fase()
 
     def next_fase(self):
         if self.idx < len(self.fases):
@@ -253,12 +436,12 @@ class StudPro(QWidget):
             self.timer.start(50)
             if t == "estudio": self.play_sound("ruido_blanco.mp3", -1)
             else: self.play_sound("piano.mp3", -1)
-        else: self.play_sound("alerta.mp3"); self.stacked.setCurrentIndex(0); self.estado = "inicio"
+        else: self.play_sound("alerta.mp3"); self.vol_widget.setVisible(False); self.stacked.setCurrentIndex(0); self.estado = "inicio"
 
     def motor(self):
         if self.rem_ms > 0:
             self.rem_ms -= 50; seg_t = self.rem_ms // 1000; m, s = divmod(seg_t, 60)
-            self.vis.actualizar(self.rem_ms/self.total_ms, f"{m:02}:{s:02}")
+            self.vis.actualizar(self.rem_ms/self.total_ms, f"{m:02d}", f"{s:02d}")
         else: self.timer.stop(); self.next_fase()
 
     def paintEvent(self, event):
@@ -335,28 +518,65 @@ class StudPro(QWidget):
             self.lay_ini.addWidget(self.btn_pers, 0, Qt.AlignmentFlag.AlignCenter)
         self.lay_ini.addStretch(3)
 
+        # Reubicar volumen si está visible
+        if self.vol_widget.isVisible():
+            icon_size  = max(28, int(e * 0.032))
+            slider_len = max(80, int(e * 0.18))
+            self.vol_widget.actualizar_tamano(icon_size, slider_len)
+            margen    = max(10, int(e * 0.012))
+            ancho_vol = icon_size + 24
+            alto_vol  = icon_size + 24 + slider_len + 20
+            self.vol_widget.setGeometry(w - ancho_vol - margen, margen, ancho_vol, alto_vol)
+            self.vol_widget.raise_()
+
         self.actualizar_botones()
+
 
 class EstudiometroWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ratio = 1.0; self.txt = "00:00"
+        self.ratio = 1.0
+        self.mins = "00"; self.segs = "00"
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def actualizar(self, ratio, t):
-        self.ratio = ratio; self.txt = t; self.update()
+    def actualizar(self, ratio, mins, segs):
+        self.ratio = ratio; self.mins = mins; self.segs = segs; self.update()
 
     def paintEvent(self, event):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
         ancho, alto = self.width(), self.height()
         d = min(ancho, alto) * 0.85
-        r = QRectF((ancho-d)/2, (alto-d)/2, d, d)
+        cx = ancho / 2; cy = alto / 2
+
+        # Círculo de progreso
+        r = QRectF(cx - d/2, cy - d/2, d, d)
         p.setPen(QPen(QColor(COLOR_ESTETICO), d*0.038, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawArc(r, 90*16, int(360*self.ratio*16))
+
         font_size = max(12, int(d * 0.18))
-        p.setFont(QFont("Kenao", font_size, QFont.Weight.Bold))
+        font = QFont("Kenao", font_size, QFont.Weight.Bold)
+        p.setFont(font)
         p.setPen(QColor(COLOR_ESTETICO))
-        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.txt)
+        fm = QFontMetrics(font)
+
+        # Ancho fijo usando "00" como referencia para evitar desplazamiento
+        ancho_ref  = fm.horizontalAdvance("00")
+        ancho_sep  = fm.horizontalAdvance(":")
+        ancho_total = ancho_ref * 2 + ancho_sep
+        x_inicio = cx - ancho_total / 2
+
+        # Dibujar MM centrado en su bloque fijo
+        rect_mins = QRect(int(x_inicio), int(cy - fm.height()/2), ancho_ref, fm.height())
+        p.drawText(rect_mins, Qt.AlignmentFlag.AlignCenter, self.mins)
+
+        # Dibujar separador ":"
+        rect_sep = QRect(int(x_inicio + ancho_ref), int(cy - fm.height()/2), ancho_sep, fm.height())
+        p.drawText(rect_sep, Qt.AlignmentFlag.AlignCenter, ":")
+
+        # Dibujar SS centrado en su bloque fijo
+        rect_segs = QRect(int(x_inicio + ancho_ref + ancho_sep), int(cy - fm.height()/2), ancho_ref, fm.height())
+        p.drawText(rect_segs, Qt.AlignmentFlag.AlignCenter, self.segs)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv); ex = StudPro(); sys.exit(app.exec())
