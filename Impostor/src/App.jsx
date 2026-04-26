@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 // ─── DATA LOADING ──────────────────────────────────────────────────────────────
-const rawModules = import.meta.glob('./data/tematicas/*.json', { eager: true });
+const rawModules = import.meta.glob('./assets/data/tematicas/*.json', { eager: true });
 const ALL_THEMES = Object.values(rawModules).map((mod) => mod.default ?? mod);
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
